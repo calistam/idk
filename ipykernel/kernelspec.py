@@ -59,17 +59,27 @@ def get_kernel_dict(extra_arguments=None):
 
 def write_kernel_spec(path=None, overrides=None, extra_arguments=None):
     """Write a kernel spec directory to `path`
-    
+
     If `path` is not specified, a temporary directory is created.
     If `overrides` is given, the kernelspec JSON is updated before writing.
-    
+    if 'resources' is given, copies resources from non-standard location.
+
     The path to the kernelspec is always returned.
     """
     if path is None:
         path = os.path.join(tempfile.mkdtemp(suffix='_kernels'), KERNEL_NAME)
-    
+
     # stage resources
     shutil.copytree(RESOURCES, path)
+
+    # change permission if resources directory is not read-write able
+    if not os.access(path, os.W_OK | os.R_OK):
+        # changes permissions only for owner, do not touch group/other
+        os.chmod(path, os.stat(path).st_mode | 0o700)
+        for f in os.listdir(path):
+            file_path = os.path.join(path, f)
+            os.chmod(file_path, os.stat(file_path).st_mode | 0o600)
+
     # write kernel.json
     kernel_dict = get_kernel_dict(extra_arguments)
 
@@ -77,17 +87,17 @@ def write_kernel_spec(path=None, overrides=None, extra_arguments=None):
         kernel_dict.update(overrides)
     with open(pjoin(path, 'kernel.json'), 'w') as f:
         json.dump(kernel_dict, f, indent=1)
-    
+
     return path
 
 
 def install(kernel_spec_manager=None, user=False, kernel_name=KERNEL_NAME, display_name=None,
             prefix=None, profile=None, env=None):
     """Install the IPython kernelspec for Jupyter
-    
+
     Parameters
     ----------
-    
+
     kernel_spec_manager: KernelSpecManager [optional]
         A KernelSpecManager to use for installation.
         If none provided, a default instance will be created.
@@ -110,7 +120,7 @@ def install(kernel_spec_manager=None, user=False, kernel_name=KERNEL_NAME, displ
 
     Returns
     -------
-    
+
     The path where the kernelspec was installed.
     """
     if kernel_spec_manager is None:
@@ -147,12 +157,12 @@ from traitlets.config import Application
 class InstallIPythonKernelSpecApp(Application):
     """Dummy app wrapping argparse"""
     name = 'ipython-kernel-install'
-    
+
     def initialize(self, argv=None):
         if argv is None:
             argv = sys.argv[1:]
         self.argv = argv
-    
+
     def start(self):
         import argparse
         parser = argparse.ArgumentParser(prog=self.name,

@@ -9,6 +9,8 @@ import sys
 import tempfile
 from unittest import mock
 
+import pytest
+
 from jupyter_core.paths import jupyter_data_dir
 
 from ipykernel.kernelspec import (
@@ -86,10 +88,41 @@ def test_write_kernel_spec_path():
     shutil.rmtree(path)
 
 
+@pytest.mark.skipif(sys.platform == 'win32',
+                    reason="does not run on windows")
+def test_write_kernel_spec_permissions(tmp_path):
+    read_only_resources = os.path.join(tmp_path, "_RESOURCES")
+    shutil.copytree(RESOURCES, read_only_resources)
+
+    # file used to check that the correct (mocked) resource directory was used
+    with open(read_only_resources + '/touch', 'w') as f:
+        pass
+
+    # make copy of resources directory read-only
+    os.chmod(read_only_resources, 0o500)
+    for f in os.listdir(read_only_resources):
+        os.chmod(os.path.join(read_only_resources, f), 0o400)
+
+    with mock.patch('ipykernel.kernelspec.RESOURCES', read_only_resources):
+        path = write_kernel_spec()
+
+        assert_is_spec(path)
+
+        # if `touch` is missing then the wrong resources directory was copied by
+        # `write_kernel_spec`, `RESOURCES` mocking didn't work?
+        assert os.path.isfile(path + '/touch')
+
+        # ensure permissions are not loosened too much, original permission was
+        # 0o500, so the 'fixed' one should be 0o700, still no rw for group/other
+        assert os.stat(path).st_mode & 0o77 == 0o00
+
+        shutil.rmtree(path)
+
+
 def test_install_kernelspec():
 
     path = tempfile.mkdtemp()
-    try: 
+    try:
         test = InstallIPythonKernelSpecApp.launch_instance(argv=['--prefix', path])
         assert_is_spec(os.path.join(
             path, 'share', 'jupyter', 'kernels', KERNEL_NAME))
@@ -99,21 +132,21 @@ def test_install_kernelspec():
 
 def test_install_user():
     tmp = tempfile.mkdtemp()
-    
+
     with mock.patch.dict(os.environ, {'HOME': tmp}):
         install(user=True)
         data_dir = jupyter_data_dir()
-    
+
     assert_is_spec(os.path.join(data_dir, 'kernels', KERNEL_NAME))
 
 
 def test_install():
     system_jupyter_dir = tempfile.mkdtemp()
-    
+
     with mock.patch('jupyter_client.kernelspec.SYSTEM_JUPYTER_PATH',
             [system_jupyter_dir]):
         install()
-    
+
     assert_is_spec(os.path.join(system_jupyter_dir, 'kernels', KERNEL_NAME))
 
 
